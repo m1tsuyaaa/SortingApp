@@ -1,8 +1,8 @@
 ﻿namespace SortingApp.Models
 {
-  public enum SortDirection
-  {
-    Ascending,
-    Descending
-  }
+    public enum SortDirection
+    {
+        Ascending,
+        Descending
+    }
 }
