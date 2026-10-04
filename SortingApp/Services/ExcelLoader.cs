@@ -1,5 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using OfficeOpenXml;
@@ -15,6 +14,9 @@ namespace SortingApp.Services
       var fileInfo = new FileInfo(filePath);
       using (var package = new ExcelPackage(fileInfo))
       {
+        if (package.Workbook.Worksheets.Count == 0)
+          return result;
+
         var worksheet = package.Workbook.Worksheets[1];
         if (worksheet?.Dimension == null)
           return result;
@@ -27,16 +29,23 @@ namespace SortingApp.Services
           for (int c = 1; c <= cols; c++)
           {
             var cell = worksheet.Cells[r, c].Value;
+
+            // Пустая ячейка → просто пропускаем
             if (cell == null) continue;
 
+            string text = cell.ToString().Trim();
+            if (string.IsNullOrWhiteSpace(text)) continue;
+
+            // Парсим число (поддерживаем и . и ,)
             if (double.TryParse(
-                cell.ToString(),
+                text.Replace(',', '.'),
                 NumberStyles.Any,
                 CultureInfo.InvariantCulture,
                 out double val))
             {
               result.Add(val);
             }
+            // Если не число — просто игнорируем
           }
         }
       }

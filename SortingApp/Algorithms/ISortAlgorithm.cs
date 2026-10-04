@@ -3,14 +3,14 @@ using System.Collections.Generic;
 
 namespace SortingApp.Algorithms
 {
-    public interface ISortAlgorithm
-    {
-        string Name { get; }
+  public interface ISortAlgorithm
+  {
+    string Name { get; }
 
-        List<double> Sort(
-            List<double> data,
-            bool ascending,
-            Action<List<double>, int> onIteration = null,
-            int maxIterations = 0);
-    }
+    Tuple<List<double>, int> Sort(
+        List<double> data,
+        bool ascending,
+        Action<List<double>, int> onIteration = null,
+        int maxIterations = 0);
+  }
 }
