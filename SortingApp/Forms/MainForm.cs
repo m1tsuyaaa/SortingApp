@@ -103,6 +103,13 @@ namespace SortingApp.Forms
         txtGeneralLimit.Text = DEFAULT_GENERAL_LIMIT;
       });
 
+      var taskMenu = new ToolStripMenuItem("Задача 2");
+      taskMenu.DropDownItems.Add("Поиск минимума (дихотомия)...", null, (s, e) =>
+      {
+        var f = new MinimizationForm();
+        f.Show(this);
+      });
+
       var helpMenu = new ToolStripMenuItem("Справка");
       helpMenu.DropDownItems.Add("О программе", null, (s, e) =>
           MessageBox.Show(
@@ -114,6 +121,7 @@ namespace SortingApp.Forms
       menuStrip.Items.Add(fileMenu);
       menuStrip.Items.Add(actionMenu);
       menuStrip.Items.Add(settingsMenu);
+      menuStrip.Items.Add(taskMenu);
       menuStrip.Items.Add(helpMenu);
       MainMenuStrip = menuStrip;
       Controls.Add(menuStrip);

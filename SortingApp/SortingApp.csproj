@@ -67,6 +67,11 @@
     <Compile Include="Forms\MainForm.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="Forms\MinimizationForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Numeric\DichotomyMethod.cs" />
+    <Compile Include="Numeric\FunctionParser.cs" />
     <Compile Include="Models\SortDirection.cs" />
     <Compile Include="Models\SortResult.cs" />
     <Compile Include="Program.cs" />
