@@ -20,20 +20,18 @@ namespace SortingApp.Forms
     private Panel graphPanel;
     private bool _isDarkTheme = false;
 
-    // Пошаговый просмотр
-    private Panel iterationPanel;
-    private TrackBar trkIteration;
-    private Label lblIterationInfo;
-    private Button btnPrev, btnNext, btnFirst, btnFinal, btnPlay;
-    private Timer _animationTimer;
-    private bool _isPlaying = false;
-
     // Данные
     private Func<double, double> _lastFunc;
     private double _lastA, _lastB;
     private DichotomyResult _lastResult;
     private int _currentStep = -1;
+
+    // Критические точки и корни
+    private List<CriticalPoint> _criticalPoints = new List<CriticalPoint>();
+    private List<RootPoint> _roots = new List<RootPoint>();
     private List<double> _detectedMinima = new List<double>();
+    private bool _showCriticalPoints = true;
+    private bool _showRoots = true;
 
     // Управление графиком
     private bool _isDragging = false;
@@ -45,17 +43,16 @@ namespace SortingApp.Forms
     public MinimizationForm()
     {
       InitializeUI();
-      SetupAnimation();
     }
 
     // ================== Построение UI ==================
     private void InitializeUI()
     {
       Text = "Поиск минимума методом дихотомии";
-      Width = 1400;
+      Width = 1300;
       Height = 800;
       StartPosition = FormStartPosition.CenterScreen;
-      MinimumSize = new Size(1100, 700);
+      MinimumSize = new Size(1000, 700);
       Font = new Font("Segoe UI", 9);
       DoubleBuffered = true;
 
@@ -64,6 +61,8 @@ namespace SortingApp.Forms
 
       var fileMenu = new ToolStripMenuItem("Файл");
       fileMenu.DropDownItems.Add("Сохранить график...", null, SaveGraph);
+      fileMenu.DropDownItems.Add("Экспорт критических точек...", null, ExportCriticalPoints);
+      fileMenu.DropDownItems.Add("Экспорт корней...", null, ExportRoots);
       fileMenu.DropDownItems.Add(new ToolStripSeparator());
       fileMenu.DropDownItems.Add("Выход", null, (s, e) => Close());
 
@@ -76,6 +75,20 @@ namespace SortingApp.Forms
       actionMenu.DropDownItems.Add("Пример 3: x⁴ - 3x³ + 2", null, (s, e) => SetExample(3));
       actionMenu.DropDownItems.Add("Пример 4: (x-1)² + sin(2x)", null, (s, e) => SetExample(4));
       actionMenu.DropDownItems.Add("Пример 5: sin(x) [НЕ унимодальная]", null, (s, e) => SetExample(5));
+      actionMenu.DropDownItems.Add(new ToolStripSeparator());
+      actionMenu.DropDownItems.Add("🔴 Найти все критические точки", null, FindAllCriticalPoints);
+      actionMenu.DropDownItems.Add("Скрыть/показать критические точки", null, (s, e) =>
+      {
+        _showCriticalPoints = !_showCriticalPoints;
+        graphPanel.Invalidate();
+      });
+      actionMenu.DropDownItems.Add(new ToolStripSeparator());
+      actionMenu.DropDownItems.Add("🔵 Найти все корни (нули функции)", null, FindAllRoots);
+      actionMenu.DropDownItems.Add("Скрыть/показать корни", null, (s, e) =>
+      {
+        _showRoots = !_showRoots;
+        graphPanel.Invalidate();
+      });
 
       var viewMenu = new ToolStripMenuItem("Вид");
       viewMenu.DropDownItems.Add("Тёмная тема", null, (s, e) => ToggleTheme());
@@ -93,22 +106,20 @@ namespace SortingApp.Forms
               "Алгоритм:\n" +
               "1. c = (a + b) / 2 — середина отрезка\n" +
               "2. x1 = c - ε/4, x2 = c + ε/4\n" +
-              "3. Если f(x1) < f(x2) → b = x2\n" +
-              "   Иначе → a = x1\n" +
+              "3. Если f(x1) < f(x2) → b = x2, иначе a = x1\n" +
               "4. Повторять, пока (b - a) > ε\n\n" +
-              "ВАЖНО:\n" +
-              "Метод работает ТОЛЬКО для унимодальных\n" +
-              "функций (с одним минимумом на отрезке).\n" +
-              "Если на [a, b] несколько минимумов —\n" +
-              "появится ошибка с их списком.\n\n" +
-              "УПРАВЛЕНИЕ ГРАФИКОМ:\n" +
-              "• ЛКМ + движение — сдвиг\n" +
+              "КРИТИЧЕСКИЕ ТОЧКИ:\n" +
+              "🔴 Красные — локальные минимумы\n" +
+              "🔵 Синие — локальные максимумы\n" +
+              "🟠 Оранжевые — точки перегиба\n\n" +
+              "КОРНИ ФУНКЦИИ (переход через ноль):\n" +
+              "🟢 Зелёные ↗ — с минуса на плюс\n" +
+              "🟣 Малиновые ↘ — с плюса на минус\n\n" +
+              "УПРАВЛЕНИЕ:\n" +
+              "• ЛКМ + движение — сдвиг графика\n" +
               "• Колёсико — масштаб\n" +
-              "• ПКМ — сброс вида\n\n" +
-              "ПОШАГОВЫЙ ПРОСМОТР:\n" +
-              "• Слайдер внизу слева\n" +
-              "• Кнопки ◀◀ / ◀ / ▶ / ▶▶\n" +
-              "• Кнопка ▶ Играть — автопроигрывание",
+              "• ПКМ — сброс вида\n" +
+              "• Ctrl+R — Рассчитать",
               "О методе",
               MessageBoxButtons.OK,
               MessageBoxIcon.Information));
@@ -120,224 +131,138 @@ namespace SortingApp.Forms
       MainMenuStrip = menuStrip;
       Controls.Add(menuStrip);
 
-      // ---------- Левая панель: ввод ----------
+      // ---------- Панель ввода ----------
       var inputPanel = new Panel
       {
         Left = 10,
         Top = 30,
         Width = 320,
-        Height = 340,
+        Height = 680,
         BorderStyle = BorderStyle.FixedSingle,
-        Anchor = AnchorStyles.Top | AnchorStyles.Left
+        Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Bottom
       };
+
+      int y = 15;
 
       var lblTitle = new Label
       {
         Text = "ПАРАМЕТРЫ ЗАДАЧИ",
         Left = 10,
-        Top = 10,
+        Top = y,
         Width = 300,
         Height = 22,
         Font = new Font("Segoe UI", 11, FontStyle.Bold),
         ForeColor = Color.FromArgb(0, 51, 102)
       };
       inputPanel.Controls.Add(lblTitle);
+      y += 35;
 
-      AddInputField(inputPanel, "Левая граница a:", 45, out txtA, "0");
-      AddInputField(inputPanel, "Правая граница b:", 80, out txtB, "5");
-      AddInputField(inputPanel, "Точность ε:", 115, out txtEpsilon, "0.001");
+      AddInputField(inputPanel, "Левая граница a:", ref y, out txtA, "0");
+      AddInputField(inputPanel, "Правая граница b:", ref y, out txtB, "5");
+      AddInputField(inputPanel, "Точность ε:", ref y, out txtEpsilon, "0.001");
 
+      y += 5;
       var lblFunc = new Label
       {
         Text = "Функция f(x):",
         Left = 10,
-        Top = 150,
+        Top = y,
         Width = 300,
         Font = new Font("Segoe UI", 9, FontStyle.Bold)
       };
       inputPanel.Controls.Add(lblFunc);
+      y += 22;
 
       txtFunction = new TextBox
       {
         Left = 10,
-        Top = 172,
+        Top = y,
         Width = 295,
         Text = "x*x - 4*x + 3",
         Font = new Font("Consolas", 10)
       };
       inputPanel.Controls.Add(txtFunction);
+      y += 35;
 
       var lblHint = new Label
       {
         Text = "Поддерживается: + - * / ^ ( )\n" +
                  "sin cos tan exp log sqrt abs\n" +
                  "pi, e, x\n\n" +
-                 "⚠ Метод работает только для унимодальных",
+                 "⚠ Метод работает только\n" +
+                 "   для унимодальных функций",
         Left = 10,
-        Top = 200,
+        Top = y,
         Width = 300,
-        Height = 75,
+        Height = 90,
         ForeColor = Color.Gray,
         Font = new Font("Segoe UI", 8, FontStyle.Italic)
       };
       inputPanel.Controls.Add(lblHint);
+      y += 100;
+
+      // Панель результата
+      var resultPanel = new Panel
+      {
+        Left = 10,
+        Top = y,
+        Width = 295,
+        Height = 180,
+        BorderStyle = BorderStyle.FixedSingle,
+        BackColor = Color.FromArgb(245, 250, 255)
+      };
+
+      var lblResultTitle = new Label
+      {
+        Text = "РЕЗУЛЬТАТ",
+        Left = 10,
+        Top = 8,
+        Width = 270,
+        Font = new Font("Segoe UI", 9, FontStyle.Bold),
+        ForeColor = Color.FromArgb(0, 51, 102)
+      };
+      resultPanel.Controls.Add(lblResultTitle);
 
       lblResult = new Label
       {
-        Text = "Результат: —",
+        Text = "—",
         Left = 10,
-        Top = 275,
-        Width = 300,
-        Height = 55,
-        Font = new Font("Consolas", 9, FontStyle.Bold),
+        Top = 30,
+        Width = 275,
+        Height = 140,
+        Font = new Font("Consolas", 9),
         ForeColor = Color.FromArgb(0, 100, 0)
       };
-      inputPanel.Controls.Add(lblResult);
+      resultPanel.Controls.Add(lblResult);
+
+      inputPanel.Controls.Add(resultPanel);
+      y += 190;
+
+      // Легенда
+      var lblLegend = new Label
+      {
+        Text = "ЛЕГЕНДА:\n" +
+                 "🔴 минимум    🔵 максимум\n" +
+                 "🟠 перегиб\n" +
+                 "🟢 ↗ (- → +)  🟣 ↘ (+ → -)",
+        Left = 10,
+        Top = y,
+        Width = 300,
+        Height = 70,
+        ForeColor = Color.FromArgb(80, 80, 90),
+        Font = new Font("Segoe UI", 8)
+      };
+      inputPanel.Controls.Add(lblLegend);
 
       Controls.Add(inputPanel);
-
-      // ---------- Панель пошагового просмотра ----------
-      iterationPanel = new Panel
-      {
-        Left = 10,
-        Top = 380,
-        Width = 320,
-        Height = 330,
-        BorderStyle = BorderStyle.FixedSingle,
-        Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Bottom
-      };
-
-      var lblIterTitle = new Label
-      {
-        Text = "ПОШАГОВЫЙ ПРОСМОТР",
-        Left = 10,
-        Top = 10,
-        Width = 300,
-        Height = 22,
-        Font = new Font("Segoe UI", 10, FontStyle.Bold),
-        ForeColor = Color.FromArgb(0, 51, 102)
-      };
-      iterationPanel.Controls.Add(lblIterTitle);
-
-      btnFirst = new Button
-      {
-        Text = "◀◀",
-        Left = 10,
-        Top = 40,
-        Width = 55,
-        Height = 32,
-        Font = new Font("Segoe UI", 10, FontStyle.Bold),
-        Enabled = false
-      };
-      btnFirst.Click += (s, e) => GotoStep(0);
-      iterationPanel.Controls.Add(btnFirst);
-
-      btnPrev = new Button
-      {
-        Text = "◀",
-        Left = 70,
-        Top = 40,
-        Width = 55,
-        Height = 32,
-        Font = new Font("Segoe UI", 10, FontStyle.Bold),
-        Enabled = false
-      };
-      btnPrev.Click += (s, e) => StepBackward();
-      iterationPanel.Controls.Add(btnPrev);
-
-      btnPlay = new Button
-      {
-        Text = "▶ Играть",
-        Left = 130,
-        Top = 40,
-        Width = 80,
-        Height = 32,
-        Font = new Font("Segoe UI", 9, FontStyle.Bold),
-        BackColor = Color.FromArgb(0, 120, 215),
-        ForeColor = Color.White,
-        FlatStyle = FlatStyle.Flat,
-        Enabled = false
-      };
-      btnPlay.FlatAppearance.BorderSize = 0;
-      btnPlay.Click += (s, e) => TogglePlay();
-      iterationPanel.Controls.Add(btnPlay);
-
-      btnNext = new Button
-      {
-        Text = "▶",
-        Left = 215,
-        Top = 40,
-        Width = 55,
-        Height = 32,
-        Font = new Font("Segoe UI", 10, FontStyle.Bold),
-        Enabled = false
-      };
-      btnNext.Click += (s, e) => StepForward();
-      iterationPanel.Controls.Add(btnNext);
-
-      btnFinal = new Button
-      {
-        Text = "▶▶",
-        Left = 275,
-        Top = 40,
-        Width = 35,
-        Height = 32,
-        Font = new Font("Segoe UI", 10, FontStyle.Bold),
-        Enabled = false
-      };
-      btnFinal.Click += (s, e) => GotoFinal();
-      iterationPanel.Controls.Add(btnFinal);
-
-      lblIterationInfo = new Label
-      {
-        Text = "Итерация: —",
-        Left = 10,
-        Top = 80,
-        Width = 300,
-        Height = 180,
-        Font = new Font("Consolas", 9),
-        BorderStyle = BorderStyle.FixedSingle,
-        BackColor = Color.FromArgb(245, 245, 250),
-        Padding = new Padding(5)
-      };
-      iterationPanel.Controls.Add(lblIterationInfo);
-
-      var lblSlider = new Label
-      {
-        Text = "Итерация:",
-        Left = 10,
-        Top = 268,
-        Width = 60
-      };
-      iterationPanel.Controls.Add(lblSlider);
-
-      trkIteration = new TrackBar
-      {
-        Left = 70,
-        Top = 262,
-        Width = 240,
-        Minimum = 0,
-        Maximum = 0,
-        TickFrequency = 1,
-        Enabled = false
-      };
-      trkIteration.ValueChanged += (s, e) =>
-      {
-        if (_lastResult == null) return;
-        _currentStep = trkIteration.Value;
-        UpdateIterationDisplay();
-      };
-      iterationPanel.Controls.Add(trkIteration);
-
-      Controls.Add(iterationPanel);
 
       // ---------- График ----------
       graphPanel = new Panel
       {
         Left = 340,
         Top = 30,
-        Width = 1030,
-        Height = 680,
+        Width = 940,
+        Height = 720,
         BorderStyle = BorderStyle.FixedSingle,
         BackColor = Color.White,
         Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom,
@@ -352,13 +277,14 @@ namespace SortingApp.Forms
       Controls.Add(graphPanel);
     }
 
-    private void AddInputField(Panel parent, string label, int top, out TextBox textBox, string defaultValue)
+    private void AddInputField(Panel parent, string label, ref int y,
+        out TextBox textBox, string defaultValue)
     {
       var lbl = new Label
       {
         Text = label,
         Left = 10,
-        Top = top,
+        Top = y,
         Width = 140
       };
       parent.Controls.Add(lbl);
@@ -366,67 +292,22 @@ namespace SortingApp.Forms
       textBox = new TextBox
       {
         Left = 155,
-        Top = top - 3,
+        Top = y - 3,
         Width = 150,
         Text = defaultValue,
         Font = new Font("Consolas", 9)
       };
       parent.Controls.Add(textBox);
-    }
 
-    // ================== Анимация ==================
-    private void SetupAnimation()
-    {
-      _animationTimer = new Timer();
-      _animationTimer.Interval = 500;
-      _animationTimer.Tick += (s, e) =>
-      {
-        if (_lastResult == null) { StopPlay(); return; }
-
-        if (_currentStep < _lastResult.Steps.Count - 1)
-        {
-          _currentStep++;
-          trkIteration.Value = _currentStep;
-        }
-        else
-        {
-          StopPlay();
-        }
-      };
-    }
-
-    private void TogglePlay()
-    {
-      if (_isPlaying) StopPlay();
-      else StartPlay();
-    }
-
-    private void StartPlay()
-    {
-      if (_lastResult == null) return;
-
-      if (_currentStep >= _lastResult.Steps.Count - 1)
-        _currentStep = 0;
-
-      _isPlaying = true;
-      btnPlay.Text = "⏸ Пауза";
-      btnPlay.BackColor = Color.FromArgb(200, 80, 80);
-      _animationTimer.Start();
-    }
-
-    private void StopPlay()
-    {
-      _isPlaying = false;
-      btnPlay.Text = "▶ Играть";
-      btnPlay.BackColor = Color.FromArgb(0, 120, 215);
-      _animationTimer.Stop();
+      y += 35;
     }
 
     // ================== Расчёт ==================
     private void Calculate(object sender, EventArgs e)
     {
-      // Очищаем список найденных минимумов
       _detectedMinima.Clear();
+      _criticalPoints.Clear();
+      _roots.Clear();
 
       if (!TryParseDouble(txtA.Text, out double a))
       {
@@ -477,41 +358,29 @@ namespace SortingApp.Forms
 
       try
       {
-        StopPlay();
-
         _lastFunc = func;
         _lastA = a;
         _lastB = b;
         _lastResult = DichotomyMethod.FindMinimum(func, a, b, eps);
+        _currentStep = _lastResult.Steps.Count - 1;
 
         _offsetX = 0;
         _offsetY = 0;
         _zoom = 1.0f;
 
-        trkIteration.Minimum = 0;
-        trkIteration.Maximum = _lastResult.Steps.Count - 1;
-        trkIteration.Value = _lastResult.Steps.Count - 1;
-        trkIteration.Enabled = true;
-        _currentStep = _lastResult.Steps.Count - 1;
+        lblResult.Text =
+            $"x* = {_lastResult.XMin:F6}\n" +
+            $"f(x*) = {_lastResult.FMin:F6}\n" +
+            $"Итераций: {_lastResult.Iterations}\n" +
+            $"Точность: {_lastResult.FinalInterval:E3}";
 
-        btnFirst.Enabled = true;
-        btnPrev.Enabled = true;
-        btnNext.Enabled = true;
-        btnFinal.Enabled = true;
-        btnPlay.Enabled = true;
-
-        UpdateIterationDisplay();
         graphPanel.Invalidate();
-
         statusUpdate($"Расчёт завершён. Итераций: {_lastResult.Iterations}");
       }
       catch (NotUnimodalException ex)
       {
-        // ============================================================
-        // КРАСИВОЕ СООБЩЕНИЕ О НЕУНИМОДАЛЬНОСТИ
-        // ============================================================
         string minimaList = "";
-        int showCount = Math.Min(ex.LocalMinima.Count, 15);
+        int showCount = Math.Min(ex.LocalMinima.Count, 10);
         for (int i = 0; i < showCount; i++)
         {
           minimaList += $"  • x{i + 1} ≈ {ex.LocalMinima[i]:F4}\n";
@@ -521,19 +390,22 @@ namespace SortingApp.Forms
           minimaList += $"  ... и ещё {ex.LocalMinima.Count - showCount}\n";
         }
 
+        int maxCount = 0;
+        if (ex.AllCriticalPoints != null)
+        {
+          foreach (var cp in ex.AllCriticalPoints)
+            if (cp.Type == CriticalPointType.Maximum) maxCount++;
+        }
+
         var result = MessageBox.Show(
             $"❌ ОШИБКА: ФУНКЦИЯ НЕ ЯВЛЯЕТСЯ УНИМОДАЛЬНОЙ!\n\n" +
-            $"На интервале [{a}; {b}] найдено " +
-            $"{ex.LocalMinimaCount} локальных минимумов:\n\n" +
-            $"{minimaList}\n" +
+            $"На интервале [{a}; {b}] найдено:\n" +
+            $"  • {ex.LocalMinimaCount} локальных минимумов\n" +
+            $"  • {maxCount} локальных максимумов\n\n" +
+            $"Список минимумов:\n{minimaList}\n" +
             $"⚠ Метод половинного деления работает ТОЛЬКО\n" +
             $"для функций с ОДНИМ минимумом на отрезке.\n\n" +
-            $"Что делать:\n" +
-            $"1. Сузьте интервал [a, b] так, чтобы на нём был\n" +
-            $"   только ОДИН локальный минимум\n" +
-            $"2. Или используйте другой метод оптимизации\n" +
-            $"   (метод Монте-Карло, сканирование, золотое сечение)\n\n" +
-            $"Хотите увидеть найденные минимумы на графике?",
+            $"Хотите увидеть все критические точки на графике?",
 
             "Функция не унимодальна",
             MessageBoxButtons.YesNo,
@@ -545,8 +417,10 @@ namespace SortingApp.Forms
           _lastA = a;
           _lastB = b;
           _detectedMinima = new List<double>(ex.LocalMinima);
+          _criticalPoints = ex.AllCriticalPoints != null
+              ? new List<CriticalPoint>(ex.AllCriticalPoints)
+              : new List<CriticalPoint>();
 
-          // Заглушка для _lastResult, чтобы отрисовка работала
           _lastResult = new DichotomyResult
           {
             XMin = ex.LocalMinima.Count > 0 ? ex.LocalMinima[0] : (a + b) / 2,
@@ -567,54 +441,244 @@ namespace SortingApp.Forms
           };
           _currentStep = 0;
 
-          // Сброс UI
-          trkIteration.Minimum = 0;
-          trkIteration.Maximum = 0;
-          trkIteration.Value = 0;
-          trkIteration.Enabled = false;
-          btnFirst.Enabled = false;
-          btnPrev.Enabled = false;
-          btnNext.Enabled = false;
-          btnFinal.Enabled = false;
-          btnPlay.Enabled = false;
-
-          // Сброс вида
           _offsetX = 0;
           _offsetY = 0;
           _zoom = 1.0f;
 
-          UpdateIterationDisplay();
-          graphPanel.Invalidate();
+          int minimaCount = 0, maximaCount = 0;
+          foreach (var cp in _criticalPoints)
+          {
+            if (cp.Type == CriticalPointType.Minimum) minimaCount++;
+            else if (cp.Type == CriticalPointType.Maximum) maximaCount++;
+          }
 
-          statusUpdate($"⚠ Обнаружено {ex.LocalMinimaCount} минимумов на отрезке");
+          lblResult.Text =
+              $"⚠ Функция немонотонна\n" +
+              $"Минимумов: {minimaCount}\n" +
+              $"Максимумов: {maximaCount}\n" +
+              $"Всего критических точек: {_criticalPoints.Count}";
+
+          graphPanel.Invalidate();
+          statusUpdate($"⚠ Обнаружено {ex.LocalMinimaCount} минимумов");
         }
         else
         {
-          // Пользователь отказался смотреть — очищаем
           _detectedMinima.Clear();
+          _criticalPoints.Clear();
+          _roots.Clear();
           _lastFunc = null;
           _lastResult = null;
           _currentStep = -1;
 
-          trkIteration.Minimum = 0;
-          trkIteration.Maximum = 0;
-          trkIteration.Value = 0;
-          trkIteration.Enabled = false;
-          btnFirst.Enabled = false;
-          btnPrev.Enabled = false;
-          btnNext.Enabled = false;
-          btnFinal.Enabled = false;
-          btnPlay.Enabled = false;
-
-          lblResult.Text = "Результат: —";
-          lblIterationInfo.Text = "Итерация: —";
-
+          lblResult.Text = "—";
           graphPanel.Invalidate();
         }
       }
       catch (Exception ex)
       {
         ShowError($"Ошибка расчёта:\n{ex.Message}");
+      }
+    }
+
+    // ================== Поиск критических точек ==================
+    private void FindAllCriticalPoints(object sender, EventArgs e)
+    {
+      _detectedMinima.Clear();
+      _criticalPoints.Clear();
+      _roots.Clear();
+
+      if (!TryParseDouble(txtA.Text, out double a))
+      {
+        ShowError("Параметр 'a' — не число!");
+        return;
+      }
+      if (!TryParseDouble(txtB.Text, out double b))
+      {
+        ShowError("Параметр 'b' — не число!");
+        return;
+      }
+      if (a >= b)
+      {
+        ShowError("Должно быть a < b!");
+        return;
+      }
+
+      FunctionParser parser;
+      try
+      {
+        parser = new FunctionParser(txtFunction.Text);
+      }
+      catch (Exception ex)
+      {
+        ShowError($"Ошибка в формуле: {ex.Message}");
+        return;
+      }
+
+      Func<double, double> func = x => parser.Evaluate(x);
+
+      try
+      {
+        _lastFunc = func;
+        _lastA = a;
+        _lastB = b;
+
+        _criticalPoints = DichotomyMethod.FindCriticalPoints(func, a, b, 2000);
+
+        foreach (var cp in _criticalPoints)
+        {
+          if (cp.Type == CriticalPointType.Minimum)
+            _detectedMinima.Add(cp.X);
+        }
+
+        _lastResult = new DichotomyResult
+        {
+          XMin = (a + b) / 2,
+          FMin = func((a + b) / 2),
+          Iterations = 0,
+          FinalInterval = b - a,
+          Steps = new List<DichotomyIteration>
+                    {
+                        new DichotomyIteration
+                        {
+                            Number = 0,
+                            A = a, B = b,
+                            C = (a + b) / 2,
+                            X1 = a, X2 = b,
+                            F1 = func(a), F2 = func(b)
+                        }
+                    }
+        };
+        _currentStep = 0;
+
+        _offsetX = 0;
+        _offsetY = 0;
+        _zoom = 1.0f;
+
+        int minimaCount = 0, maximaCount = 0, inflectionCount = 0;
+        foreach (var cp in _criticalPoints)
+        {
+          switch (cp.Type)
+          {
+            case CriticalPointType.Minimum: minimaCount++; break;
+            case CriticalPointType.Maximum: maximaCount++; break;
+            case CriticalPointType.Inflection: inflectionCount++; break;
+          }
+        }
+
+        lblResult.Text =
+            $"КРИТИЧЕСКИЕ ТОЧКИ\n" +
+            $"Минимумов: {minimaCount}\n" +
+            $"Максимумов: {maximaCount}\n" +
+            $"Перегибов: {inflectionCount}\n" +
+            $"Всего: {_criticalPoints.Count}";
+
+        graphPanel.Invalidate();
+        statusUpdate($"Найдено {_criticalPoints.Count} критических точек");
+      }
+      catch (Exception ex)
+      {
+        ShowError($"Ошибка поиска:\n{ex.Message}");
+      }
+    }
+
+    // ================== Поиск корней ==================
+    private void FindAllRoots(object sender, EventArgs e)
+    {
+      _roots.Clear();
+      _criticalPoints.Clear();
+      _detectedMinima.Clear();
+
+      if (!TryParseDouble(txtA.Text, out double a))
+      {
+        ShowError("Параметр 'a' — не число!");
+        return;
+      }
+      if (!TryParseDouble(txtB.Text, out double b))
+      {
+        ShowError("Параметр 'b' — не число!");
+        return;
+      }
+      if (a >= b)
+      {
+        ShowError("Должно быть a < b!");
+        return;
+      }
+
+      FunctionParser parser;
+      try
+      {
+        parser = new FunctionParser(txtFunction.Text);
+      }
+      catch (Exception ex)
+      {
+        ShowError($"Ошибка в формуле: {ex.Message}");
+        return;
+      }
+
+      Func<double, double> func = x => parser.Evaluate(x);
+
+      try
+      {
+        _lastFunc = func;
+        _lastA = a;
+        _lastB = b;
+
+        _roots = RootFinder.FindRoots(func, a, b, 1e-8, 2000);
+
+        _lastResult = new DichotomyResult
+        {
+          XMin = (a + b) / 2,
+          FMin = func((a + b) / 2),
+          Iterations = 0,
+          FinalInterval = b - a,
+          Steps = new List<DichotomyIteration>
+                    {
+                        new DichotomyIteration
+                        {
+                            Number = 0,
+                            A = a, B = b,
+                            C = (a + b) / 2,
+                            X1 = a, X2 = b,
+                            F1 = func(a), F2 = func(b)
+                        }
+                    }
+        };
+        _currentStep = 0;
+
+        _offsetX = 0;
+        _offsetY = 0;
+        _zoom = 1.0f;
+
+        int negToPos = 0, posToNeg = 0;
+        foreach (var r in _roots)
+        {
+          if (r.Direction > 0) negToPos++;
+          else if (r.Direction < 0) posToNeg++;
+        }
+
+        lblResult.Text =
+            $"КОРНИ ФУНКЦИИ\n" +
+            $"Найдено: {_roots.Count}\n" +
+            $"↗ (- → +): {negToPos}\n" +
+            $"↘ (+ → -): {posToNeg}";
+
+        int showMax = Math.Min(_roots.Count, 5);
+        for (int i = 0; i < showMax; i++)
+        {
+          string arrow = _roots[i].Direction > 0 ? "↗" : "↘";
+          lblResult.Text += $"\n{arrow} x{i + 1} = {_roots[i].X:F4}";
+        }
+        if (_roots.Count > showMax)
+          lblResult.Text += $"\n... и ещё {_roots.Count - showMax}";
+        if (_roots.Count == 0)
+          lblResult.Text += "\nКорней нет.";
+
+        graphPanel.Invalidate();
+        statusUpdate($"Найдено {_roots.Count} корней функции");
+      }
+      catch (Exception ex)
+      {
+        ShowError($"Ошибка поиска корней:\n{ex.Message}");
       }
     }
 
@@ -629,111 +693,6 @@ namespace SortingApp.Forms
           MessageBoxButtons.OK, MessageBoxIcon.Warning);
     }
 
-    // ================== Пошаговый просмотр ==================
-    private void StepBackward()
-    {
-      if (_lastResult == null) return;
-      if (_currentStep > 0)
-      {
-        _currentStep--;
-        trkIteration.Value = _currentStep;
-      }
-    }
-
-    private void StepForward()
-    {
-      if (_lastResult == null) return;
-      if (_currentStep < _lastResult.Steps.Count - 1)
-      {
-        _currentStep++;
-        trkIteration.Value = _currentStep;
-      }
-    }
-
-    private void GotoStep(int step)
-    {
-      if (_lastResult == null) return;
-      _currentStep = Math.Max(0, Math.Min(step, _lastResult.Steps.Count - 1));
-      trkIteration.Value = _currentStep;
-    }
-
-    private void GotoFinal()
-    {
-      if (_lastResult == null) return;
-      _currentStep = _lastResult.Steps.Count - 1;
-      trkIteration.Value = _currentStep;
-    }
-
-    private void UpdateIterationDisplay()
-    {
-      if (_lastResult == null) return;
-
-      // Особый случай: функция немонотонна
-      if (_detectedMinima != null && _detectedMinima.Count > 1)
-      {
-        lblIterationInfo.Text =
-            $"⚠ ФУНКЦИЯ НЕМОНОТОННА\n" +
-            $"───────────────────\n" +
-            $"На отрезке найдено\n" +
-            $"{_detectedMinima.Count} локальных минимумов.\n\n" +
-            $"Метод дихотомии НЕ ПРИМЕНИМ.\n\n" +
-            $"Сузьте интервал [a, b]\n" +
-            $"до одного минимума.";
-
-        lblResult.Text =
-            $"❌ Метод не применим:\n" +
-            $"Найдено {_detectedMinima.Count} минимумов";
-        return;
-      }
-
-      var step = _lastResult.Steps[
-          Math.Max(0, Math.Min(_currentStep, _lastResult.Steps.Count - 1))];
-
-      if (_currentStep == _lastResult.Steps.Count - 1)
-      {
-        lblIterationInfo.Text =
-            $"╔═══ ФИНАЛ ═══╗\n" +
-            $"║ x* = {_lastResult.XMin:F6}\n" +
-            $"║ f(x*) = {_lastResult.FMin:F6}\n" +
-            $"║ Итераций: {_lastResult.Iterations}\n" +
-            $"║ Точность: {_lastResult.FinalInterval:E3}\n" +
-            $"╚══════════════╝";
-
-        lblResult.Text =
-            $"✓ РЕЗУЛЬТАТ:\n" +
-            $"x* = {_lastResult.XMin:F6}\n" +
-            $"f(x*) = {_lastResult.FMin:F6}\n" +
-            $"Итераций: {_lastResult.Iterations}\n" +
-            $"Точность: {_lastResult.FinalInterval:E3}";
-      }
-      else
-      {
-        string comparison = step.F1 < step.F2
-            ? "f(x1) < f(x2) → b = x2"
-            : "f(x2) ≤ f(x1) → a = x1";
-
-        lblIterationInfo.Text =
-            $"Итерация {step.Number}\n" +
-            $"───────────────────\n" +
-            $"a  = {step.A:F6}\n" +
-            $"b  = {step.B:F6}\n" +
-            $"c  = {step.C:F6}\n" +
-            $"x1 = {step.X1:F6}\n" +
-            $"x2 = {step.X2:F6}\n" +
-            $"f(x1) = {step.F1:F6}\n" +
-            $"f(x2) = {step.F2:F6}\n" +
-            $"Длина: {step.Interval:E3}\n" +
-            $"───────────────────\n" +
-            $"{comparison}";
-
-        lblResult.Text =
-            $"Результат: —\n" +
-            $"(текущая итерация: {step.Number})";
-      }
-
-      graphPanel.Invalidate();
-    }
-
     // ================== Меню: Очистить ==================
     private void ClearAll(object sender, EventArgs e)
     {
@@ -741,31 +700,20 @@ namespace SortingApp.Forms
           MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
         return;
 
-      StopPlay();
-
       txtA.Text = "0";
       txtB.Text = "5";
       txtEpsilon.Text = "0.001";
       txtFunction.Text = "x*x - 4*x + 3";
-      lblResult.Text = "Результат: —";
-      lblIterationInfo.Text = "Итерация: —";
+      lblResult.Text = "—";
       _lastFunc = null;
       _lastResult = null;
       _currentStep = -1;
       _detectedMinima.Clear();
+      _criticalPoints.Clear();
+      _roots.Clear();
       _offsetX = 0;
       _offsetY = 0;
       _zoom = 1.0f;
-
-      trkIteration.Minimum = 0;
-      trkIteration.Maximum = 0;
-      trkIteration.Value = 0;
-      trkIteration.Enabled = false;
-      btnFirst.Enabled = false;
-      btnPrev.Enabled = false;
-      btnNext.Enabled = false;
-      btnFinal.Enabled = false;
-      btnPlay.Enabled = false;
 
       graphPanel.Invalidate();
     }
@@ -796,7 +744,6 @@ namespace SortingApp.Forms
           txtFunction.Text = "(x-1)^2 + sin(2*x)";
           break;
         case 5:
-          // НЕунимодальная функция — вызовет ошибку
           txtA.Text = "0"; txtB.Text = "1000";
           txtEpsilon.Text = "0.001";
           txtFunction.Text = "sin(x)";
@@ -805,7 +752,7 @@ namespace SortingApp.Forms
       Calculate(null, EventArgs.Empty);
     }
 
-    // ================== Сохранение графика ==================
+    // ================== Сохранение ==================
     private void SaveGraph(object sender, EventArgs e)
     {
       using (var sfd = new SaveFileDialog())
@@ -826,6 +773,92 @@ namespace SortingApp.Forms
         catch (Exception ex)
         {
           MessageBox.Show($"Ошибка сохранения:\n{ex.Message}",
+              "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+      }
+    }
+
+    private void ExportCriticalPoints(object sender, EventArgs e)
+    {
+      if (_criticalPoints == null || _criticalPoints.Count == 0)
+      {
+        MessageBox.Show("Нет критических точек для экспорта.",
+            "Внимание", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        return;
+      }
+
+      using (var sfd = new SaveFileDialog())
+      {
+        sfd.Filter = "CSV|*.csv";
+        sfd.FileName = "critical_points";
+
+        if (sfd.ShowDialog(this) != DialogResult.OK) return;
+
+        try
+        {
+          using (var writer = new System.IO.StreamWriter(
+              sfd.FileName, false, System.Text.Encoding.UTF8))
+          {
+            writer.WriteLine("№;Тип;X;F(X)");
+            for (int i = 0; i < _criticalPoints.Count; i++)
+            {
+              var cp = _criticalPoints[i];
+              string type = cp.Type == CriticalPointType.Minimum ? "Минимум"
+                          : cp.Type == CriticalPointType.Maximum ? "Максимум"
+                          : "Перегиб";
+              writer.WriteLine($"{i + 1};{type};{cp.X:F6};{cp.F:F6}");
+            }
+          }
+
+          MessageBox.Show("Критические точки сохранены!",
+              "Готово", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+          MessageBox.Show($"Ошибка:\n{ex.Message}",
+              "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+      }
+    }
+
+    private void ExportRoots(object sender, EventArgs e)
+    {
+      if (_roots == null || _roots.Count == 0)
+      {
+        MessageBox.Show("Нет корней для экспорта.",
+            "Внимание", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        return;
+      }
+
+      using (var sfd = new SaveFileDialog())
+      {
+        sfd.Filter = "CSV|*.csv";
+        sfd.FileName = "roots";
+
+        if (sfd.ShowDialog(this) != DialogResult.OK) return;
+
+        try
+        {
+          using (var writer = new System.IO.StreamWriter(
+              sfd.FileName, false, System.Text.Encoding.UTF8))
+          {
+            writer.WriteLine("№;X;F(X);Направление");
+            for (int i = 0; i < _roots.Count; i++)
+            {
+              var r = _roots[i];
+              string dir = r.Direction > 0 ? "(- → +)"
+                         : r.Direction < 0 ? "(+ → -)"
+                         : "= 0";
+              writer.WriteLine($"{i + 1};{r.X:F6};{r.F:F6};{dir}");
+            }
+          }
+
+          MessageBox.Show("Корни сохранены!",
+              "Готово", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+          MessageBox.Show($"Ошибка:\n{ex.Message}",
               "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
       }
@@ -949,11 +982,8 @@ namespace SortingApp.Forms
         return;
       }
 
-      // Текущая итерация
-      int safeStep = Math.Max(0, Math.Min(_currentStep, _lastResult.Steps.Count - 1));
-      var currentStep = _lastResult.Steps[safeStep];
+      var currentStep = _lastResult.Steps[0];
 
-      // Диапазоны
       double xMin = _lastA;
       double xMax = _lastB;
 
@@ -984,7 +1014,6 @@ namespace SortingApp.Forms
       yMin -= yRange * 0.1;
       yMax += yRange * 0.1;
 
-      // Zoom и offset
       double xRange = xMax - xMin;
       double centerX = (xMin + xMax) / 2 + _offsetX / (plotW * _zoom) * xRange;
       double centerY = (yMin + yMax) / 2 - _offsetY / (plotH * _zoom) * (yMax - yMin);
@@ -1002,7 +1031,7 @@ namespace SortingApp.Forms
       Func<double, float> toPy = y =>
           (float)(padTop + plotH - (y - viewYMin) / (viewYMax - viewYMin) * plotH);
 
-      // === Сетка ===
+      // Сетка
       using (var gridPen = new Pen(gridColor, 1))
       {
         for (int i = 0; i <= 10; i++)
@@ -1015,7 +1044,7 @@ namespace SortingApp.Forms
         }
       }
 
-      // === Оси X и Y ===
+      // Оси
       using (var axisPen = new Pen(axisColor, 2))
       using (var arrowPen = new Pen(axisColor, 2))
       {
@@ -1036,7 +1065,7 @@ namespace SortingApp.Forms
         }
       }
 
-      // === Подписи осей ===
+      // Подписи осей
       using (var font = new Font("Segoe UI", 10, FontStyle.Bold))
       using (var brush = new SolidBrush(fgColor))
       {
@@ -1060,7 +1089,7 @@ namespace SortingApp.Forms
         }
       }
 
-      // === Деления и подписи ===
+      // Деления
       using (var font = new Font("Segoe UI", 8))
       using (var brush = new SolidBrush(fgColor))
       {
@@ -1082,20 +1111,24 @@ namespace SortingApp.Forms
         }
       }
 
-      // === Текущий отрезок [a, b] ===
-      float ax = toPx(currentStep.A);
-      float bx = toPx(currentStep.B);
-      using (var brush = new SolidBrush(Color.FromArgb(40, Color.DodgerBlue)))
+      // Текущий отрезок
+      bool hasCritical = _criticalPoints != null && _criticalPoints.Count > 2;
+      if (!hasCritical)
       {
-        g.FillRectangle(brush, ax, padTop, bx - ax, plotH);
-      }
-      using (var pen = new Pen(Color.DodgerBlue, 2) { DashStyle = DashStyle.Dash })
-      {
-        g.DrawLine(pen, ax, padTop, ax, padTop + plotH);
-        g.DrawLine(pen, bx, padTop, bx, padTop + plotH);
+        float ax = toPx(currentStep.A);
+        float bx = toPx(currentStep.B);
+        using (var brush = new SolidBrush(Color.FromArgb(40, Color.DodgerBlue)))
+        {
+          g.FillRectangle(brush, ax, padTop, bx - ax, plotH);
+        }
+        using (var pen = new Pen(Color.DodgerBlue, 2) { DashStyle = DashStyle.Dash })
+        {
+          g.DrawLine(pen, ax, padTop, ax, padTop + plotH);
+          g.DrawLine(pen, bx, padTop, bx, padTop + plotH);
+        }
       }
 
-      // === Функция ===
+      // Функция
       using (var pen = new Pen(Color.FromArgb(70, 130, 200), 2.5f))
       {
         PointF? prev = null;
@@ -1124,93 +1157,140 @@ namespace SortingApp.Forms
         }
       }
 
-      // ============================================================
-      // === ВСЕ НАЙДЕННЫЕ МИНИМУМЫ (если функция немонотонна) ===
-      // ============================================================
-      if (_detectedMinima != null && _detectedMinima.Count > 1)
+      // Критические точки
+      if (_showCriticalPoints && _criticalPoints != null && _criticalPoints.Count > 0)
       {
-        using (var pen = new Pen(Color.Orange, 2))
-        using (var brush = new SolidBrush(Color.Orange))
+        for (int i = 0; i < _criticalPoints.Count; i++)
         {
-          for (int i = 0; i < _detectedMinima.Count; i++)
+          var cp = _criticalPoints[i];
+
+          float px = toPx(cp.X);
+          float py = toPy(cp.F);
+
+          if (py < padTop - 50 || py > padTop + plotH + 50) continue;
+
+          Color pointColor;
+          string label;
+
+          switch (cp.Type)
           {
-            double mx = _detectedMinima[i];
-            double my;
-            try { my = _lastFunc(mx); }
-            catch { continue; }
+            case CriticalPointType.Minimum:
+              pointColor = Color.Red;
+              label = $"min{i + 1}";
+              break;
+            case CriticalPointType.Maximum:
+              pointColor = Color.Blue;
+              label = $"max{i + 1}";
+              break;
+            default:
+              pointColor = Color.Orange;
+              label = $"inf{i + 1}";
+              break;
+          }
 
-            float px = toPx(mx);
-            float py = toPy(my);
+          using (var brush = new SolidBrush(pointColor))
+            g.FillEllipse(brush, px - 5, py - 5, 10, 10);
 
-            if (py < padTop - 50 || py > padTop + plotH + 50) continue;
-
-            g.FillEllipse(brush, px - 4, py - 4, 8, 8);
+          using (var pen = new Pen(Color.White, 2))
             g.DrawEllipse(pen, px - 5, py - 5, 10, 10);
 
-            using (var font = new Font("Segoe UI", 7, FontStyle.Bold))
-            using (var brushTxt = new SolidBrush(Color.DarkOrange))
-            {
-              g.DrawString($"{i + 1}", font, brushTxt, px - 3, py - 18);
-            }
+          using (var pen = new Pen(pointColor, 2))
+            g.DrawEllipse(pen, px - 6, py - 6, 12, 12);
+
+          using (var font = new Font("Segoe UI", 7, FontStyle.Bold))
+          using (var brush = new SolidBrush(pointColor))
+          {
+            g.DrawString(label, font, brush, px - 10, py - 20);
           }
         }
 
-        // Информация сверху
-        using (var font = new Font("Segoe UI", 11, FontStyle.Bold))
-        using (var brush = new SolidBrush(Color.Red))
+        int minimaCount = 0, maximaCount = 0, inflectionCount = 0;
+        foreach (var cp in _criticalPoints)
+        {
+          switch (cp.Type)
+          {
+            case CriticalPointType.Minimum: minimaCount++; break;
+            case CriticalPointType.Maximum: maximaCount++; break;
+            case CriticalPointType.Inflection: inflectionCount++; break;
+          }
+        }
+
+        using (var font = new Font("Segoe UI", 10, FontStyle.Bold))
+        using (var brush = new SolidBrush(Color.FromArgb(30, 30, 40)))
         using (var bgBrush = new SolidBrush(Color.FromArgb(240, Color.White)))
         {
-          string text = $"⚠ Найдено {_detectedMinima.Count} минимумов — метод неприменим";
+          string text = $"🔴 {minimaCount}   🔵 {maximaCount}   🟠 {inflectionCount}";
           var size = g.MeasureString(text, font);
           g.FillRectangle(bgBrush, padLeft + 10, padTop + 10,
               size.Width + 12, size.Height + 8);
-          using (var borderPen = new Pen(Color.Red, 2))
-            g.DrawRectangle(borderPen, padLeft + 10, padTop + 10,
+          using (var pen = new Pen(Color.Gray, 1))
+            g.DrawRectangle(pen, padLeft + 10, padTop + 10,
                 size.Width + 12, size.Height + 8);
           g.DrawString(text, font, brush, padLeft + 16, padTop + 14);
         }
       }
-      // ============================================================
-      // === ОДИНОЧНЫЙ МИНИМУМ (если функция унимодальна) ===
-      // ============================================================
-      else
+
+      // КОРНИ
+      if (_showRoots && _roots != null && _roots.Count > 0)
       {
-        // Точки x1 и x2 (только на промежуточных итерациях)
-        if (_currentStep < _lastResult.Steps.Count - 1)
+        for (int i = 0; i < _roots.Count; i++)
         {
-          float cx = toPx(currentStep.C);
-          using (var pen = new Pen(Color.Orange, 1.5f) { DashStyle = DashStyle.Dot })
-          {
-            g.DrawLine(pen, cx, padTop, cx, padTop + plotH);
-          }
+          var root = _roots[i];
 
-          using (var brush = new SolidBrush(Color.Orange))
-          {
-            g.FillEllipse(brush, toPx(currentStep.X1) - 5,
-                toPy(currentStep.F1) - 5, 10, 10);
-            g.FillEllipse(brush, toPx(currentStep.X2) - 5,
-                toPy(currentStep.F2) - 5, 10, 10);
-          }
+          float px = toPx(root.X);
+          float py = toPy(0);
 
-          using (var pen = new Pen(Color.DarkOrange, 2))
-          {
-            g.DrawEllipse(pen, toPx(currentStep.X1) - 6,
-                toPy(currentStep.F1) - 6, 12, 12);
-            g.DrawEllipse(pen, toPx(currentStep.X2) - 6,
-                toPy(currentStep.F2) - 6, 12, 12);
-          }
+          if (py < padTop - 50 || py > padTop + plotH + 50) continue;
+
+          Color rootColor = root.Direction > 0
+              ? Color.FromArgb(0, 180, 80)
+              : Color.FromArgb(220, 0, 120);
+
+          using (var brush = new SolidBrush(rootColor))
+            g.FillEllipse(brush, px - 6, py - 6, 12, 12);
+
+          using (var pen = new Pen(Color.White, 2))
+            g.DrawEllipse(pen, px - 6, py - 6, 12, 12);
+
+          using (var pen = new Pen(rootColor, 2.5f))
+            g.DrawEllipse(pen, px - 8, py - 8, 16, 16);
 
           using (var font = new Font("Segoe UI", 8, FontStyle.Bold))
-          using (var brush = new SolidBrush(Color.DarkOrange))
+          using (var brush = new SolidBrush(rootColor))
           {
-            g.DrawString("x1", font, brush,
-                toPx(currentStep.X1) - 8, toPy(currentStep.F1) + 8);
-            g.DrawString("x2", font, brush,
-                toPx(currentStep.X2) + 3, toPy(currentStep.F2) + 8);
+            string arrow = root.Direction > 0 ? "↗" : "↘";
+            g.DrawString($"{arrow}x{i + 1}", font, brush, px - 12, py + 10);
           }
         }
 
-        // Точка минимума
+        int negToPos = 0, posToNeg = 0;
+        foreach (var r in _roots)
+        {
+          if (r.Direction > 0) negToPos++;
+          else if (r.Direction < 0) posToNeg++;
+        }
+
+        int topOffset = (_showCriticalPoints && _criticalPoints != null && _criticalPoints.Count > 0)
+            ? 30 : 10;
+
+        using (var font = new Font("Segoe UI", 10, FontStyle.Bold))
+        using (var brush = new SolidBrush(Color.FromArgb(30, 30, 40)))
+        using (var bgBrush = new SolidBrush(Color.FromArgb(240, Color.White)))
+        {
+          string text = $"Корни: {_roots.Count}   ↗ {negToPos}   ↘ {posToNeg}";
+          var size = g.MeasureString(text, font);
+          g.FillRectangle(bgBrush, padLeft + 10, padTop + topOffset,
+              size.Width + 12, size.Height + 8);
+          using (var pen = new Pen(Color.Gray, 1))
+            g.DrawRectangle(pen, padLeft + 10, padTop + topOffset,
+                size.Width + 12, size.Height + 8);
+          g.DrawString(text, font, brush, padLeft + 16, padTop + topOffset + 4);
+        }
+      }
+
+      // Одиночный минимум
+      if (!hasCritical)
+      {
         float pxMin = toPx(_lastResult.XMin);
         float pyMin = toPy(_lastResult.FMin);
 
@@ -1235,12 +1315,11 @@ namespace SortingApp.Forms
         }
       }
 
-      // === Информация внизу ===
+      // Информация внизу
       using (var font = new Font("Segoe UI", 9))
       using (var brush = new SolidBrush(fgColor))
       {
-        string info = $"Zoom: {_zoom:F2}x  |  ЛКМ — сдвиг  |  Колёсико — масштаб  |  ПКМ — сброс  |  " +
-                      $"Итерация: {_currentStep + 1}/{_lastResult.Steps.Count}";
+        string info = $"Zoom: {_zoom:F2}x  |  ЛКМ — сдвиг  |  Колёсико — масштаб  |  ПКМ — сброс";
         g.DrawString(info, font, brush, padLeft, H - 25);
       }
     }
@@ -1283,31 +1362,6 @@ namespace SortingApp.Forms
       if (keyData == (Keys.Control | Keys.R))
       {
         Calculate(null, EventArgs.Empty);
-        return true;
-      }
-      if (keyData == Keys.Space)
-      {
-        if (btnPlay.Enabled) TogglePlay();
-        return true;
-      }
-      if (keyData == Keys.Left)
-      {
-        if (btnPrev.Enabled) StepBackward();
-        return true;
-      }
-      if (keyData == Keys.Right)
-      {
-        if (btnNext.Enabled) StepForward();
-        return true;
-      }
-      if (keyData == Keys.Home)
-      {
-        if (btnFirst.Enabled) GotoStep(0);
-        return true;
-      }
-      if (keyData == Keys.End)
-      {
-        if (btnFinal.Enabled) GotoFinal();
         return true;
       }
       return base.ProcessCmdKey(ref msg, keyData);

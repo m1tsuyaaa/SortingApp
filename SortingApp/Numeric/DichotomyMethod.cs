@@ -3,6 +3,9 @@ using System.Collections.Generic;
 
 namespace SortingApp.Numeric
 {
+  // ============================================================
+  //  ИТЕРАЦИЯ МЕТОДА ДИХОТОМИИ
+  // ============================================================
   public class DichotomyIteration
   {
     public int Number { get; set; }
@@ -16,6 +19,9 @@ namespace SortingApp.Numeric
     public double Interval => B - A;
   }
 
+  // ============================================================
+  //  РЕЗУЛЬТАТ МЕТОДА ДИХОТОМИИ
+  // ============================================================
   public class DichotomyResult
   {
     public double XMin { get; set; }
@@ -26,47 +32,81 @@ namespace SortingApp.Numeric
         = new List<DichotomyIteration>();
   }
 
-  /// <summary>
-  /// Исключение при попытке применить дихотомию к немонотонной функции.
-  /// </summary>
+  // ============================================================
+  //  КРИТИЧЕСКАЯ ТОЧКА
+  // ============================================================
+  public enum CriticalPointType
+  {
+    Minimum,
+    Maximum,
+    Inflection
+  }
+
+  public class CriticalPoint
+  {
+    public double X { get; set; }
+    public double F { get; set; }
+    public CriticalPointType Type { get; set; }
+  }
+
+  // ============================================================
+  //  КОРЕНЬ ФУНКЦИИ (переход через ноль)
+  // ============================================================
+  public class RootPoint
+  {
+    public double X { get; set; }
+    public double F { get; set; }
+
+    /// <summary>
+    /// Направление перехода:
+    /// +1 — с минуса на плюс (↗)
+    /// -1 — с плюса на минус (↘)
+    /// </summary>
+    public int Direction { get; set; }
+
+    public int Iterations { get; set; }
+  }
+
+  // ============================================================
+  //  ИСКЛЮЧЕНИЕ: НЕУНИМОДАЛЬНАЯ ФУНКЦИЯ
+  // ============================================================
   public class NotUnimodalException : Exception
   {
     public int LocalMinimaCount { get; }
     public List<double> LocalMinima { get; }
+    public List<CriticalPoint> AllCriticalPoints { get; }
 
     public NotUnimodalException(string message,
         int localMinimaCount,
-        List<double> localMinima)
+        List<double> localMinima,
+        List<CriticalPoint> allCriticalPoints = null)
         : base(message)
     {
       LocalMinimaCount = localMinimaCount;
       LocalMinima = localMinima;
+      AllCriticalPoints = allCriticalPoints ?? new List<CriticalPoint>();
     }
   }
 
+  // ============================================================
+  //  МЕТОД ДИХОТОМИИ
+  // ============================================================
   public static class DichotomyMethod
   {
     /// <summary>
-    /// Проверяет, является ли функция унимодальной на отрезке [a, b].
-    /// Унимодальная функция имеет только 1 локальный минимум.
+    /// Находит все критические точки (минимумы, максимумы, перегибы).
     /// </summary>
-    /// <param name="func">Функция</param>
-    /// <param name="a">Левая граница</param>
-    /// <param name="b">Правая граница</param>
-    /// <param name="samples">Число точек для анализа</param>
-    /// <returns>Список локальных минимумов (если их больше 1 — функция немонотонна)</returns>
-    public static List<double> FindLocalMinima(
+    public static List<CriticalPoint> FindCriticalPoints(
         Func<double, double> func,
         double a, double b,
-        int samples = 1000)
+        int samples = 2000)
     {
-      var minima = new List<double>();
+      var result = new List<CriticalPoint>();
 
-      if (samples < 10) samples = 10;
+      if (samples < 20) samples = 20;
 
       double step = (b - a) / samples;
 
-      // Считаем значения
       var values = new double[samples + 1];
       for (int i = 0; i <= samples; i++)
       {
@@ -75,8 +115,6 @@ namespace SortingApp.Numeric
         catch { values[i] = double.NaN; }
       }
 
-      // Ищем локальные минимумы:
-      // точка i — локальный минимум, если values[i-1] > values[i] < values[i+1]
       for (int i = 1; i < samples; i++)
       {
         if (double.IsNaN(values[i - 1]) ||
@@ -84,54 +122,63 @@ namespace SortingApp.Numeric
             double.IsNaN(values[i + 1]))
           continue;
 
-        if (values[i - 1] > values[i] && values[i] < values[i + 1])
-        {
-          // Локальный минимум в точке i
-          double xMin = a + step * i;
+        double d1 = values[i] - values[i - 1];
+        double d2 = values[i + 1] - values[i];
 
-          // Уточняем дихотомией в узком диапазоне
+        if (d1 * d2 < 0)
+        {
+          double xCrit = a + step * i;
+          double fCrit = values[i];
+
           try
           {
             double localA = a + step * (i - 1);
             double localB = a + step * (i + 1);
-            double refined = RefineMinimum(func, localA, localB);
-            minima.Add(refined);
+
+            if (d1 > 0 && d2 < 0)
+              xCrit = RefineExtremum(func, localA, localB, true);
+            else
+              xCrit = RefineExtremum(func, localA, localB, false);
+
+            fCrit = func(xCrit);
           }
-          catch
+          catch { }
+
+          result.Add(new CriticalPoint
           {
-            minima.Add(xMin);
-          }
+            X = xCrit,
+            F = fCrit,
+            Type = d1 > 0 ? CriticalPointType.Maximum
+                            : CriticalPointType.Minimum
+          });
         }
       }
 
-      // Убираем близкие дубликаты (на всякий случай)
-      var unique = new List<double>();
-      foreach (var m in minima)
+      var unique = new List<CriticalPoint>();
+      foreach (var cp in result)
       {
         bool isDuplicate = false;
         foreach (var u in unique)
         {
-          if (Math.Abs(m - u) < step * 1.5)
+          if (Math.Abs(cp.X - u.X) < step * 1.5 && cp.Type == u.Type)
           {
             isDuplicate = true;
             break;
           }
         }
-        if (!isDuplicate) unique.Add(m);
+        if (!isDuplicate) unique.Add(cp);
       }
 
       return unique;
     }
 
-    /// <summary>
-    /// Уточнение минимума методом золотого сечения (быстрее дихотомии).
-    /// </summary>
-    private static double RefineMinimum(
+    private static double RefineExtremum(
         Func<double, double> func,
-        double a, double b,
+        double a, double b, bool isMax,
         int maxIter = 100)
     {
       const double phi = 0.618033988749895;
+
       double x1 = b - phi * (b - a);
       double x2 = a + phi * (b - a);
       double f1 = func(x1);
@@ -139,7 +186,9 @@ namespace SortingApp.Numeric
 
       for (int i = 0; i < maxIter; i++)
       {
-        if (f1 < f2)
+        bool chooseLeft = isMax ? f1 > f2 : f1 < f2;
+
+        if (chooseLeft)
         {
           b = x2;
           x2 = x1;
@@ -160,6 +209,29 @@ namespace SortingApp.Numeric
       return (a + b) / 2.0;
     }
 
+    /// <summary>
+    /// Находит локальные минимумы.
+    /// </summary>
+    public static List<double> FindLocalMinima(
+        Func<double, double> func,
+        double a, double b,
+        int samples = 1000)
+    {
+      var minima = new List<double>();
+      var criticalPoints = FindCriticalPoints(func, a, b, samples);
+
+      foreach (var cp in criticalPoints)
+      {
+        if (cp.Type == CriticalPointType.Minimum)
+          minima.Add(cp.X);
+      }
+
+      return minima;
+    }
+
+    /// <summary>
+    /// Метод дихотомии для поиска локального минимума.
+    /// </summary>
     public static DichotomyResult FindMinimum(
         Func<double, double> func,
         double a, double b, double epsilon,
@@ -169,19 +241,31 @@ namespace SortingApp.Numeric
       if (a >= b) throw new ArgumentException("a должно быть < b");
       if (epsilon <= 0) throw new ArgumentException("ε должно быть > 0");
 
-      // ✅ ПРОВЕРКА УНИМОДАЛЬНОСТИ
-      var localMinima = FindLocalMinima(func, a, b, 1000);
+      var criticalPoints = FindCriticalPoints(func, a, b, 1000);
+      var localMinima = new List<double>();
+      var localMaxima = new List<double>();
 
-      if (localMinima.Count > 1)
+      foreach (var cp in criticalPoints)
       {
+        if (cp.Type == CriticalPointType.Minimum)
+          localMinima.Add(cp.X);
+        else if (cp.Type == CriticalPointType.Maximum)
+          localMaxima.Add(cp.X);
+      }
+
+      if (localMinima.Count > 1 || localMaxima.Count > 0)
+      {
+        string extra = localMaxima.Count > 0
+            ? $"\nНайдено {localMaxima.Count} локальных максимумов."
+            : "";
+
         throw new NotUnimodalException(
-            $"На интервале [{a}; {b}] найдено {localMinima.Count} локальных минимумов.\n" +
-            "Метод дихотомии работает ТОЛЬКО для унимодальных функций " +
-            "(с одним минимумом на отрезке).\n\n" +
-            "Сузьте интервал так, чтобы на нём был только один минимум,\n" +
-            "или используйте другой метод оптимизации.",
+            $"На интервале [{a}; {b}] найдено {localMinima.Count} " +
+            $"локальных минимумов.{extra}\n" +
+            "Метод дихотомии работает ТОЛЬКО для унимодальных функций.",
             localMinima.Count,
-            localMinima);
+            localMinima,
+            criticalPoints);
       }
 
       var result = new DichotomyResult();
@@ -238,6 +322,140 @@ namespace SortingApp.Numeric
       result.FinalInterval = b - a;
 
       return result;
+    }
+  }
+
+  // ============================================================
+  //  ПОИСК КОРНЕЙ ФУНКЦИИ (переход через ноль)
+  // ============================================================
+  public static class RootFinder
+  {
+    /// <summary>
+    /// Находит все корни функции на отрезке [a, b],
+    /// где f(x) меняет знак (переходит через ноль).
+    /// </summary>
+    public static List<RootPoint> FindRoots(
+        Func<double, double> func,
+        double a, double b,
+        double epsilon = 1e-6,
+        int samples = 2000)
+    {
+      var roots = new List<RootPoint>();
+
+      if (samples < 20) samples = 20;
+
+      double step = (b - a) / samples;
+
+      double prevX = a;
+      double prevF = SafeEval(func, a);
+
+      for (int i = 1; i <= samples; i++)
+      {
+        double currX = a + step * i;
+        double currF = SafeEval(func, currX);
+
+        if (double.IsNaN(prevF) || double.IsNaN(currF))
+        {
+          prevX = currX;
+          prevF = currF;
+          continue;
+        }
+
+        // Смена знака
+        if (prevF * currF < 0)
+        {
+          var root = RefineRoot(func, prevX, currX, epsilon, prevF, currF);
+          if (root != null)
+            roots.Add(root);
+        }
+        // Точное попадание в ноль
+        else if (Math.Abs(currF) < 1e-12)
+        {
+          roots.Add(new RootPoint
+          {
+            X = currX,
+            F = 0,
+            Direction = 0,
+            Iterations = 0
+          });
+        }
+
+        prevX = currX;
+        prevF = currF;
+      }
+
+      // Убираем близкие дубликаты
+      var unique = new List<RootPoint>();
+      foreach (var r in roots)
+      {
+        bool isDup = false;
+        foreach (var u in unique)
+        {
+          if (Math.Abs(r.X - u.X) < step * 0.5)
+          {
+            isDup = true;
+            break;
+          }
+        }
+        if (!isDup) unique.Add(r);
+      }
+
+      return unique;
+    }
+
+    /// <summary>
+    /// Уточняет корень методом дихотомии.
+    /// </summary>
+    private static RootPoint RefineRoot(
+        Func<double, double> func,
+        double a, double b, double epsilon,
+        double fa, double fb)
+    {
+      int direction = Math.Sign(fb) - Math.Sign(fa);
+      int iterations = 0;
+
+      double mid = (a + b) / 2;
+      double fmid = SafeEval(func, mid);
+
+      while ((b - a) > epsilon && iterations < 200)
+      {
+        mid = (a + b) / 2;
+        fmid = SafeEval(func, mid);
+
+        if (double.IsNaN(fmid)) break;
+
+        if (fa * fmid < 0)
+        {
+          b = mid;
+          fb = fmid;
+        }
+        else
+        {
+          a = mid;
+          fa = fmid;
+        }
+
+        iterations++;
+      }
+
+      return new RootPoint
+      {
+        X = (a + b) / 2,
+        F = SafeEval(func, (a + b) / 2),
+        Direction = direction,
+        Iterations = iterations
+      };
+    }
+
+    private static double SafeEval(Func<double, double> func, double x)
+    {
+      try
+      {
+        double y = func(x);
+        if (double.IsNaN(y) || double.IsInfinity(y)) return double.NaN;
+        return y;
+      }
+      catch { return double.NaN; }
     }
   }
 }

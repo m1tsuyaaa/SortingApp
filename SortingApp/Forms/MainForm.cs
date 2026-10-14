@@ -121,7 +121,6 @@ namespace SortingApp.Forms
       menuStrip.Items.Add(fileMenu);
       menuStrip.Items.Add(actionMenu);
       menuStrip.Items.Add(settingsMenu);
-      menuStrip.Items.Add(taskMenu);
       menuStrip.Items.Add(helpMenu);
       MainMenuStrip = menuStrip;
       Controls.Add(menuStrip);
