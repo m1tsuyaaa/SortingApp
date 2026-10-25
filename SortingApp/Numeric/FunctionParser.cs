@@ -1,13 +1,11 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Globalization;
-using System.Text;
 
 namespace SortingApp.Numeric
 {
   /// <summary>
   /// Парсер математических выражений.
-  /// Поддерживает: + - * / ^ ( ) sin cos tan exp log sqrt abs pi e x
+  /// Поддерживает: + - * / ^ ( ) |...| sin cos tan exp log sqrt abs pi e x
   /// </summary>
   public class FunctionParser
   {
@@ -31,12 +29,12 @@ namespace SortingApp.Numeric
       double result = ParseExpression(x);
 
       if (_pos < _expression.Length)
-        throw new Exception(
-            $"Не удалось разобрать выражение около позиции {_pos}");
+        throw new Exception($"Не удалось разобрать выражение около позиции {_pos}");
 
       return result;
     }
 
+    // expression = term (('+' | '-') term)*
     private double ParseExpression(double x)
     {
       double result = ParseTerm(x);
@@ -52,6 +50,7 @@ namespace SortingApp.Numeric
       return result;
     }
 
+    // term = factor (('*' | '/') factor)*
     private double ParseTerm(double x)
     {
       double result = ParseFactor(x);
@@ -74,6 +73,7 @@ namespace SortingApp.Numeric
       return result;
     }
 
+    // factor = unary ('^' factor)?
     private double ParseFactor(double x)
     {
       double baseValue = ParseUnary(x);
@@ -88,6 +88,7 @@ namespace SortingApp.Numeric
       return baseValue;
     }
 
+    // unary = ('-' | '+')? primary
     private double ParseUnary(double x)
     {
       if (_pos < _expression.Length)
@@ -99,6 +100,7 @@ namespace SortingApp.Numeric
       return ParsePrimary(x);
     }
 
+    // primary = number | 'x' | '(' expression ')' | '|' expression '|' | func '(' expression ')'
     private double ParsePrimary(double x)
     {
       if (_pos >= _expression.Length)
@@ -106,6 +108,18 @@ namespace SortingApp.Numeric
 
       char c = _expression[_pos];
 
+      // Модуль |...|
+      if (c == '|')
+      {
+        _pos++;
+        double result = ParseExpression(x);
+        if (_pos >= _expression.Length || _expression[_pos] != '|')
+          throw new Exception("Не закрыт модуль |");
+        _pos++;
+        return System.Math.Abs(result);
+      }
+
+      // Скобки
       if (c == '(')
       {
         _pos++;
@@ -116,7 +130,12 @@ namespace SortingApp.Numeric
         return result;
       }
 
-      if (c == 'x') { _pos++; return x; }
+      // Переменная x
+      if (c == 'x')
+      {
+        _pos++;
+        return x;
+      }
 
       // Константы
       if (MatchWord("pi")) return System.Math.PI;
@@ -131,7 +150,9 @@ namespace SortingApp.Numeric
       if (MatchWord("sqrt")) return ParseFuncArg(x, System.Math.Sqrt);
       if (MatchWord("abs")) return ParseFuncArg(x, System.Math.Abs);
 
-      if (char.IsDigit(c) || c == '.') return ParseNumber();
+      // Число
+      if (char.IsDigit(c) || c == '.')
+        return ParseNumber();
 
       throw new Exception($"Неизвестный символ: '{c}'");
     }

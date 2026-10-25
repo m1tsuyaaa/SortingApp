@@ -15,7 +15,7 @@ namespace SortingApp.Forms
     {
       Text = "Выбор задачи";
       Width = 700;
-      Height = 500;
+      Height = 700;
       StartPosition = FormStartPosition.CenterScreen;
       FormBorderStyle = FormBorderStyle.FixedDialog;
       MaximizeBox = false;
@@ -82,10 +82,25 @@ namespace SortingApp.Forms
 
       Controls.Add(card2);
 
+      // Карточка 3 — Золотое сечение
+      var card3 = CreateTaskCard(
+          "🏆 Задача 3: Золотое сечение",
+          "Метод золотого сечения для поиска\n" +
+          "экстремума (min/max) функции f(x)\n\n" +
+          "• Поиск минимума и максимума\n" +
+          "• Поддержка модуля |x|\n" +
+          "• Поиск корней функции\n" +
+          "• Красивый график с осями",
+          Color.FromArgb(200, 140, 50),
+          470,
+          (s, e) => OpenTask(new GoldenSectionForm()));
+
+      Controls.Add(card3);
+
       // Нижняя подпись
       var lblFooter = new Label
       {
-        Text = "© 2025 · WinForms · C# · Численные методы",
+        Text = "© 2026 · WinForms · C# · Численные методы",
         Left = 0,
         Top = ClientSize.Height - 30,
         Width = ClientSize.Width,
