@@ -15,7 +15,7 @@ namespace SortingApp.Forms
     {
       Text = "Выбор задачи";
       Width = 700;
-      Height = 700;
+      Height = 900;
       StartPosition = FormStartPosition.CenterScreen;
       FormBorderStyle = FormBorderStyle.FixedDialog;
       MaximizeBox = false;
@@ -96,6 +96,21 @@ namespace SortingApp.Forms
           (s, e) => OpenTask(new GoldenSectionForm()));
 
       Controls.Add(card3);
+
+      // Карточка 4 — Метод Ньютона
+      var card4 = CreateTaskCard(
+          "⚡ Задача 4: Метод Ньютона",
+          "Быстрый метод касательных для поиска\n" +
+          "экстремума или корня функции f(x)\n\n" +
+          "• Поиск min и max\n" +
+          "• Поиск корней f(x) = 0\n" +
+          "• Численное дифференцирование\n" +
+          "• Пошаговый просмотр",
+          Color.FromArgb(150, 60, 180),
+          630, // ← Отступ сверху (чтобы не налезало на 3-ю)
+          (s, e) => OpenTask(new NewtonForm()));
+
+      Controls.Add(card4);
 
       // Нижняя подпись
       var lblFooter = new Label
